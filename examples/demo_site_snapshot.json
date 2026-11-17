@@ -1,0 +1,26 @@
+{
+  "site_url": "https://stones.example.org",
+  "source": "manual_import",
+  "pages": [
+    {
+      "url": "https://stones.example.org/products/demo-granite",
+      "http_status": 200,
+      "title": "Example Granite Product",
+      "meta_description": "Example fixture only; not a real product description.",
+      "canonical": "https://stones.example.org/products/demo-granite",
+      "h1_count": 1,
+      "noindex": false,
+      "in_sitemap": true
+    },
+    {
+      "url": "https://stones.example.org/products/missing-demo",
+      "http_status": 404,
+      "title": "",
+      "meta_description": "",
+      "canonical": null,
+      "h1_count": 0,
+      "noindex": null,
+      "in_sitemap": false
+    }
+  ]
+}

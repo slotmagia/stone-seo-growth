@@ -90,3 +90,17 @@ class GeoObservation(Base):
     evidence_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     source: Mapped[str] = mapped_column(String(32), default="manual_sample")
+
+
+class SiteAuditRun(Base):
+    """Historical snapshot; this is not proof of any live crawl/index state."""
+    __tablename__ = "site_audit_runs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    site_url: Mapped[str] = mapped_column(String(500))
+    site_host: Mapped[str] = mapped_column(String(255), index=True)
+    source: Mapped[str] = mapped_column(String(32))
+    snapshot_sha256: Mapped[str] = mapped_column(String(64))
+    pages_count: Mapped[int] = mapped_column(Integer)
+    summary: Mapped[dict] = mapped_column(JSON, default=dict)
+    issues: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

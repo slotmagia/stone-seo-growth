@@ -1,6 +1,6 @@
 # Stone Growth OS — 石材行业 SEO / GEO 智能增长平台
 
-> **v0.1.0 · 可运行的离线/本地 MVP，不是生产级全渠道运营系统。**
+> **v0.1.1 · 可运行的离线/本地 MVP，不是生产级全渠道运营系统。**
 >
 > 对应需求：石材批发、加工、工程、线上零售及外贸的关键词发现、证据型内容、发布审批、搜索表现与询盘增长闭环。
 
@@ -8,13 +8,13 @@
 
 | 能力 | 状态 | 说明 |
 |---|---|---|
-| 产品/规格知识库 | ✅ MVP | 产品 SKU、属性、核验字段、证据引用 |
+| 产品/规格知识库 | ✅ MVP | 产品 SKU、属性、核验字段、证据引用；原始 CSV 批量校验/去重/原子导入 |
 | 关键词机会 | ✅ MVP | 中文/英文关键词、搜索渠道、意图与可解释评分 |
 | 内容生成 | ✅ MVP | **离线模板引擎**：只包含已经核验的事实，尚未接入 LLM |
 | AI Agent / LangGraph | 📋 设计阶段 | 在 `docs/architecture.md` 中定义接口及下一期实现路径 |
 | QA 和审批状态机 | ✅ MVP | 未核验事实阻止审批、所有关键操作产生审计日志 |
 | 发布适配层 | 🟡 骨架 | 接口契约、能力矩阵、人工发布交接；**没有实际第三方发布** |
-| 站点技术 SEO | 🟡 基础 | 本地内容 SEO 检查；爬虫审计、站点提交尚未接入 |
+| 站点技术 SEO | 🟡 基础 | 本地内容 SEO 检查 + 人工页面快照审计与归档；**未执行实时抓取** |
 | 数据分析 | ✅ MVP | 授权数据的人工导入、按产品内容归集的汇总看板 |
 | GEO | 🟡 基础 | 手动记录 AI 搜索采样结果、提及率与引用率；无实时平台查询 |
 | 电商/百度/Google/抖音/国际站 API | 📋 待授权 | 需要账号授权、接口审批、平台配额与契约测试 |
@@ -53,6 +53,14 @@ cp .env.example .env
 
 在 `.env` 追加：`POSTGRES_PASSWORD=<随机数据库密码>`。Compose 只在 `127.0.0.1:8000` 监听；远程访问必须经 HTTPS 反向代理与身份认证。此配置仅用于功能试运行。生产需要 Alembic 数据库迁移、备份、角色隔离、SSO、审计保留策略、安全扫描和运行监控。
 
+## P0 新增：产品 CSV 与静态 SEO 基线（v0.1.1）
+
+- CSV 全量预检、大小与字段校验、大小写不敏感 SKU 去重、无错才批量落库；新增事实均保持「未验证」。
+- 人工输入页面元数据形成 **离线** 技术 SEO 基线，按错误/警告/信息归类，保存历史快照及审计事件。
+- 控制台支持上传本地 CSV 与录入页面快照 JSON，或使用 OpenAPI。
+- 详细字段规范、演示请求、测试及后续阻断项见 [`docs/p0-delivery.md`](docs/p0-delivery.md)。
+- 示例数据仅用于测试，不代表真实石材库存或网站状态。
+
 ## 业务操作演示
 
 1. 打开控制台，填写 `ADMIN_API_KEY`。
@@ -89,11 +97,12 @@ app/
   database.py, models.py     # persistence
   schemas.py, security.py    # validation and auth
   domains/
-    catalog/                 # real product facts + evidence
+    catalog/                 # real product facts + evidence + atomic CSV intake
     keywords/                # scoring and research
     content/                 # evidence-based drafting + QA
     publishing/              # manual handoff and platform registry
     analytics/               # metrics aggregation
+    site_audit/              # operator-supplied static SEO baseline
   integrations/ports.py      # platform adapter contract
   web/index.html             # zero-build operator UI
 
@@ -103,6 +112,7 @@ docs/
   operations-and-security.md # security, rollback, failure handling
   requirements.md            # product acceptance criteria & KPI
   github-setup.md            # initialized repository and contribution workflow
+  p0-delivery.md             # P0 incremental delivery, CSV + offline site baseline
 ```
 
 ## 原则

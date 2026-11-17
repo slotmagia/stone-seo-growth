@@ -32,6 +32,17 @@ textarea{min-height:72px}button{cursor:pointer;border:0;border-radius:9px;paddin
 <form id="keyword"><label>产品 ID</label><input name="product_id" type="number" min="1" required><label>关键词</label><input name="phrase" required placeholder="granite paving slabs supplier"><label>平台</label><select name="platform"><option>google</option><option>baidu</option><option>website</option><option>douyin</option><option>domestic_shop</option><option>alibaba_icbu</option><option>geo</option></select><label>语言</label><select name="locale"><option>en-US</option><option>zh-CN</option></select><label>意图</label><input name="intent" value="采购询价" required><label>数据来源</label><input name="source" value="manual_research" required><label>商业 / 相关 / 机会 / 可交付评分（0–100，逗号分隔）</label><input name="scores" value="85,90,70,95" required><button type="submit">创建机会</button></form><div id="keywords"></div></div>
 <div class="panel"><h2>3 · 内容工作流</h2><p class="muted">草稿 → QA → 待审核 → 人工批准 → 发布交接 → 人工确认发布</p><label>关键词 ID</label><input id="draft_keyword_id" type="number" min="1"><button onclick="createDraft()">生成证据型草稿</button><div id="contents"></div></div>
 </section>
+<div class="panel"><h2>P0 · CSV 产品批量导入</h2>
+<p class="muted">上传 UTF-8 CSV（1 MiB、1000 行以内）；先预检再导入。任何错误阻止整批写入；导入产品均未核验。格式见 <a href="/docs" style="color:#65dfb3">OpenAPI</a>。</p>
+<input type="file" id="catalogCsv" accept=".csv,text/csv"><div class="actions"><button class="ghost" onclick="importCatalog(true)">预检 CSV（无写入）</button><button onclick="importCatalog(false)">导入全部有效行</button></div>
+<pre id="csvReport" style="white-space:pre-wrap;word-wrap:break-word;font-size:12px"></pre>
+</div>
+<div class="panel"><h2>P0 · 技术 SEO 静态基线</h2>
+<p class="muted">仅处理你手动提供的页面 JSON；**不会访问网站**，也不代表真实收录。可参照 examples/demo_site_snapshot.json。</p>
+<textarea id="siteSnapshot" rows="6" placeholder='{"site_url":"https://example.org","pages":[{"url":"https://example.org/","http_status":200,"title":"Example","meta_description":"Sample","h1_count":1,"noindex":false,"in_sitemap":true}]}'></textarea>
+<button onclick="auditSite()">记录静态基线</button>
+<pre id="siteReport" style="white-space:pre-wrap;word-wrap:break-word;font-size:12px"></pre>
+</div>
 <div class="panel"><h2>运行说明</h2><p class="muted">默认数据库为本地 SQLite；真实生产需使用 PostgreSQL、HTTPS、专用身份认证、审计和数据库迁移。API 文档：<a href="/docs" style="color:#65dfb3">/docs</a>。开发阶段使用右上角管理密钥。测试数据不代表真实搜索表现。</p></div>
 </main>
 <script>
@@ -49,6 +60,27 @@ $('keyword').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target
 async function verifyProduct(id){const raw=prompt('输入字段来源 JSON，例如：{"title_zh":"内部产品目录第3页","stone_type":"采购确认单#11","properties.thickness_mm":"规格表#23"}');if(!raw)return;try{await call('/products/'+id+'/verify','POST',{evidence:JSON.parse(raw)});await refresh()}catch(e){notify(e.message)}}
 async function createDraft(){try{await call('/contents/drafts','POST',{keyword_id:Number($('draft_keyword_id').value)});await refresh()}catch(e){notify(e.message)}}
 async function action(id,path){try{const v=await call('/contents/'+id+'/'+path,'POST');await refresh();if(path==='prepare-publication')notify(JSON.stringify(v,null,2))}catch(e){notify(e.message)}}
+async function importCatalog(dryRun){
+  const file=$('catalogCsv').files[0];if(!file){notify('请先选择 CSV 文件');return}
+  if(file.size>1048576){notify('文件超过 1 MiB 限制');return}
+  key=$('secret').value||key;
+  try{
+    const resp=await fetch('/api/v1/products/import-csv'+(dryRun?'?dry_run=true':''),
+      {method:'POST',headers:{'X-API-Key':key,'Content-Type':'text/csv'},body:await file.arrayBuffer()});
+    const data=await resp.json();const result=data.detail||data;
+    $('csvReport').textContent=JSON.stringify(result,null,2);
+    if(!resp.ok)throw new Error('CSV 未写入：'+resp.status);
+    notify(dryRun?'预检完成，没有写入任何记录':`导入完成，新增 ${result.imported} 条未核验产品`);
+    if(!dryRun)await refresh();
+  }catch(e){notify(e.message)}
+}
+async function auditSite(){
+  try{const payload=JSON.parse($('siteSnapshot').value);
+    const result=await call('/sites/audits','POST',payload);
+    $('siteReport').textContent=JSON.stringify(result,null,2);
+    notify('静态快照已保存；未联网采集任何网站数据。');
+  }catch(e){notify(e.message)}
+}
 async function confirmPublication(id){const url=prompt('请输入你已人工发布的真实 URL：');if(!url)return;const ref=prompt('请输入平台记录 ID 或发布凭据：');if(!ref)return;try{await call('/contents/'+id+'/confirm-manual-publication','POST',{url,external_reference:ref});await refresh()}catch(e){notify(e.message)}}
 </script>
 </body></html>

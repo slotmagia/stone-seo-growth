@@ -1,26 +1,28 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Request, Query
 from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.database import Base, engine, get_db
-from app.models import Product, Keyword, Content, Metric, AuditEvent, GeoObservation
-from app.schemas import ProductCreate, ProductRead, VerifyFields, KeywordCreate, KeywordRead, DraftCreate, ContentRead, ManualPublication, MetricIn, GeoSampleIn
+from app.models import Product, Keyword, Content, Metric, AuditEvent, GeoObservation, SiteAuditRun
+from app.schemas import ProductCreate, ProductRead, VerifyFields, KeywordCreate, KeywordRead, DraftCreate, ContentRead, ManualPublication, MetricIn, GeoSampleIn, SiteSnapshotIn
 from app.security import require_admin
 from app.domains.catalog.service import verify
+from app.domains.catalog.importer import prepare_csv_import, MAX_CSV_BYTES
 from app.domains.keywords.service import priority_score
 from app.domains.content.service import generate, qa_blockers
 from app.domains.publishing.service import publication_package, CAPABILITIES
 from app.domains.analytics.service import dashboard
+from app.domains.site_audit.service import generate_baseline
 
 @asynccontextmanager
 async def lifespan(app:FastAPI):
     Base.metadata.create_all(bind=engine)  # MVP only; Alembic migrations required before production
     yield
 
-app = FastAPI(title="Stone SEO/GEO Growth Platform", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Stone SEO/GEO Growth Platform", version="0.1.1", lifespan=lifespan)
 
 @app.get("/", response_class=HTMLResponse)
 def home():
@@ -48,6 +50,38 @@ def create_product(payload:ProductCreate, db:Session=Depends(get_db)):
         db.rollback(); raise HTTPException(409, detail="SKU already exists")
     db.refresh(product)
     return product
+
+
+@api.post("/products/import-csv")
+async def import_products_csv(request: Request, dry_run: bool = Query(False), db: Session = Depends(get_db)):
+    """POST text/csv with raw CSV bytes. Entire batch is transactional."""
+    content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    if content_type not in ("text/csv", "application/csv"):
+        raise HTTPException(415, "Use Content-Type: text/csv and send raw UTF-8 CSV bytes")
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > MAX_CSV_BYTES:
+            raise HTTPException(413, "CSV exceeds 1 MiB limit")
+        body.extend(chunk)
+    prepared = prepare_csv_import(bytes(body), db)
+    if dry_run:
+        return {**prepared.report, "dry_run": True}
+    if prepared.report["errors"]:
+        raise HTTPException(422, detail=prepared.report)
+    if not prepared.products:
+        raise HTTPException(422, detail="CSV contains no importable products")
+    for item in prepared.products:
+        db.add(Product(**item.model_dump(), evidence={}, verified_fields=[]))
+    try:
+        db.flush()
+        db.add(AuditEvent(entity_type="catalog_import", entity_id=0,
+                          action="csv_products_imported",
+                          details={"sha256": prepared.report["sha256"], "count": len(prepared.products)}))
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "SKU conflict during commit; the batch was rolled back")
+    return {**prepared.report, "imported": len(prepared.products), "dry_run": False}
 
 @api.get("/products", response_model=list[ProductRead])
 def list_products(db:Session=Depends(get_db)):
@@ -204,5 +238,37 @@ def geo_report(db:Session=Depends(get_db)):
             "reviewed_accuracy_rate":round(sum(reviewed)/len(reviewed),4) if reviewed else None,
             "accuracy_reviewed_count":len(reviewed),
             "note":"Manual observations only, maximum latest 1000. Not official search rankings or population estimates."}
+
+
+@api.post("/sites/audits", status_code=201)
+def create_site_audit(payload: SiteSnapshotIn, db: Session = Depends(get_db)):
+    baseline = generate_baseline(payload)
+    record = SiteAuditRun(**{key: baseline[key] for key in (
+        "site_url", "site_host", "source", "snapshot_sha256", "pages_count", "summary", "issues")})
+    db.add(record)
+    db.flush()
+    db.add(AuditEvent(entity_type="site_audit", entity_id=record.id,
+                      action="static_site_baseline_recorded",
+                      details={"source": baseline["source"], "snapshot_sha256": baseline["snapshot_sha256"],
+                               "pages_count": baseline["pages_count"]}))
+    db.commit()
+    db.refresh(record)
+    return {"id": record.id, **baseline}
+
+@api.get("/sites/audits")
+def list_site_audits(db: Session = Depends(get_db)):
+    runs = db.scalars(select(SiteAuditRun).order_by(SiteAuditRun.id.desc()).limit(100)).all()
+    return [{"id": item.id, "site_url": item.site_url, "pages_count": item.pages_count,
+             "source": item.source, "summary": item.summary, "created_at": item.created_at}
+            for item in runs]
+
+@api.get("/sites/audits/{audit_id}")
+def get_site_audit(audit_id: int, db: Session = Depends(get_db)):
+    item = must_find(db, SiteAuditRun, audit_id)
+    return {"id": item.id, "site_url": item.site_url, "site_host": item.site_host,
+            "source": item.source, "snapshot_sha256": item.snapshot_sha256,
+            "pages_count": item.pages_count, "summary": item.summary, "issues": item.issues,
+            "created_at": item.created_at,
+            "note": "Static operator-provided snapshot only; no live crawl or ranking verification."}
 
 app.include_router(api,prefix="/api/v1")

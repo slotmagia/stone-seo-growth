@@ -1,0 +1,3 @@
+sku,title_zh,title_en,stone_type,property.finish,property.thickness_mm
+DEMO-STONE-001,示例花岗岩,Example Granite,granite,flamed,"[20,30]"
+DEMO-STONE-002,示例大理石,Example Marble,marble,polished,"[16,18]"

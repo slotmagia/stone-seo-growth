@@ -82,3 +82,19 @@ class GeoSampleIn(BaseModel):
     company_cited: bool
     accuracy_reviewed: bool | None = None
     evidence_url: HttpUrl | None = None
+
+
+class SitePageSnapshot(BaseModel):
+    url: HttpUrl
+    http_status: int = Field(ge=100, le=599)
+    title: str | None = Field(default=None, max_length=500)
+    meta_description: str | None = Field(default=None, max_length=1000)
+    canonical: HttpUrl | None = None
+    h1_count: int = Field(ge=0, le=100)
+    noindex: bool | None = None
+    in_sitemap: bool | None = None
+
+class SiteSnapshotIn(BaseModel):
+    site_url: HttpUrl
+    source: Literal["manual_import"] = "manual_import"
+    pages: list[SitePageSnapshot] = Field(min_length=1, max_length=200)

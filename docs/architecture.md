@@ -24,12 +24,13 @@ PostgreSQL (production) / SQLite (local MVP)
 
 业务域：
 
-- `catalog`：SKU、规格、加工能力、原始证据与人工核验记录。
+- `catalog`：SKU、规格、加工能力、原始证据与人工核验记录；v0.1.1 加入 CSV 导入（仅未核实事实）、去重及整批校验。
 - `keywords`：统一关键词、平台/语言/意图、可解释评分与待办机会。
 - `content`：事实快照、内容创建、QA、审核状态转换。
 - `publishing`：平台授权、发布协议、幂等任务与状态回执（目前只有交接包）。
 - `analytics`：导入可信渠道数据、页面与关键词主题维度效果指标。
 - `geo`：人工采样、品牌提及/来源引用/事实准确度评估。
+- `site_audit`：人工录入静态页面状态，生成可追溯 SEO 基线（不联网抓取、不推断排名）。
 - `governance`（下一期）：规则版本、审批角色、权限、成本预算与运行证据。
 
 ### 2. 状态机
@@ -54,6 +55,7 @@ DRAFT -> VALIDATED -> REVIEW_REQUIRED -> APPROVED -> HANDOFF_READY -> PUBLISHED
 | `metrics` | 内容、日期、渠道、来源、曝光、点击、询盘、订单 | 外部指标的已标识导入记录 |
 | `geo_observations` | 提问、模型版本、语言、是否提及/引用、审阅准确率 | 不推断全网 AI 搜索表现 |
 | `audit_events` | 实体、动作、详情、时间 | 关键操作记录 |
+| `site_audit_runs` | 域名、页面数、输入哈希、问题列表与摘要 | 人工静态 SEO 基线（v0.1.1） |
 
 目前数据库使用 `create_all` 开发初始化，禁止把它视为生产迁移管理；生产必须引入 Alembic 和版本化迁移策略。
 
