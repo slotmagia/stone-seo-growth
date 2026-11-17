@@ -102,7 +102,7 @@ docs/
   implementation-plan.md     # 90-day delivery plan and P0/P1/P2 backlog
   operations-and-security.md # security, rollback, failure handling
   requirements.md            # product acceptance criteria & KPI
-  github-setup.md            # create private repo and push instructions
+  github-setup.md            # initialized repository and contribution workflow
 ```
 
 ## 原则
