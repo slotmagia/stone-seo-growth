@@ -7,11 +7,11 @@
 | 项 | 当前状态 | 本次交付 / 剩余缺口 |
 | --- | --- | --- |
 | P0-01 资产清查 | 待业务输入 | 需要真实域名、CMS 版本、已授权账号、站点语言、sitemap；不在代码库提交凭据 |
-| P0-02 Product Fact v2 | 部分 | 新导入 SKU 默认未核验、源 CSV SHA256 汇总审计；字段复核人、附件存储、失效时间与字段版本待做 |
+| P0-02 Product Fact v2 | **版本/复核/到期/撤销 API 完成** | 证据 SHA256 可记录但未上传和核验原始附件，身份绑定/二次审批仍待做 |
 | P0-03 CSV 导入 | **离线 MVP 完成** | UTF-8 BOM、字段校验、大小/条数限制、SKU 去重、dry-run、整批原子导入、审计和错误行报告；Excel 尚未支持 |
 | P0-04 技术 SEO 基线 | **静态快照 MVP 完成** | 自备页面元数据 JSON → 问题列表、严重程度、历史记录；未连接在线爬虫、真实 robots.txt/sitemap 或索引状态 |
 | P0-05 安全基线 | 部分 | 原有 API Key 保护、测试、审计；生产 SSO/RBAC、速率限制/备份/密钥轮换待做 |
-| P0-06 迁移体系 | 待开发 | 当前数据库 `create_all`；新表 `site_audit_runs` 会在本地自动建立。生产迁移必须使用 Alembic 并实测回滚 |
+| P0-06 迁移体系 | **Alembic SQLite 验收完成** | 基线接管既有库、ProductFact 新表、安全空表降级/有数据拒绝降级；PostgreSQL staging 迁移及真实备份恢复仍待做 |
 
 ## 1. 产品 CSV 规范
 
@@ -71,3 +71,9 @@ python -m compileall -q app
 3. 新增 SQLite→PostgreSQL Alembic 初始迁移/升级/回滚测试，禁止直接在生产使用 `create_all`。
 4. 在线技术 SEO 只读采集器：域名 allowlist、robots 遵从、SSRF/内网地址阻断、限流、超时、采集快照；必须额外授权并在隔离环境测试。
 5. 上线前补齐 SSO/RBAC、API Key 轮换、审计保留与备份恢复演练；多租户隔离尚未实现。
+
+## 5. v0.1.2 增量
+
+- `ProductFact v2`：追加式字段版本、证据引用/摘要、复核人（操作员声明）、有效期、撤销；内容草稿持有版本快照，版本变化时拒绝继续批准/交接。文档：`docs/product-facts-v2.md`。
+- `Alembic`：0001 基线接管旧 SQLite 表，0002 新事实表；已通过 SQLite 升级、无数据降级及有历史时阻止降级测试。生产 PostgreSQL 尚需真实恢复演练。文档：`docs/database-migrations.md`。
+- 新 API 均由原管理 API Key 保护；平台外部发布仍未实现。

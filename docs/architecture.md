@@ -49,7 +49,8 @@ DRAFT -> VALIDATED -> REVIEW_REQUIRED -> APPROVED -> HANDOFF_READY -> PUBLISHED
 
 | 表 | 关键字段 | 说明 |
 |---|---|---|
-| `products` | SKU、属性、证据、已核验字段 | 唯一的产品事实源 |
+| `products` | SKU、属性、证据兼容字段 | 产品主档；`verified_fields` 不再是可信状态的唯一来源 |
+| `product_fact_revisions` | 字段、事实值、证据来源、复核人、版本、有效期、撤销 | v2 有效事实的唯一来源；旧历史不覆盖 |
 | `keywords` | 词、渠道、语言、4项评分、产品 ID | 单渠道机会与归属 |
 | `contents` | 关键词 ID、产品 ID、证据快照、审批状态、外部 URL | 内容聚合根 |
 | `metrics` | 内容、日期、渠道、来源、曝光、点击、询盘、订单 | 外部指标的已标识导入记录 |
@@ -57,11 +58,11 @@ DRAFT -> VALIDATED -> REVIEW_REQUIRED -> APPROVED -> HANDOFF_READY -> PUBLISHED
 | `audit_events` | 实体、动作、详情、时间 | 关键操作记录 |
 | `site_audit_runs` | 域名、页面数、输入哈希、问题列表与摘要 | 人工静态 SEO 基线（v0.1.1） |
 
-目前数据库使用 `create_all` 开发初始化，禁止把它视为生产迁移管理；生产必须引入 Alembic 和版本化迁移策略。
+v0.1.2 已加入 Alembic 基线和 ProductFact 迁移；SQLite 本地演示可 `create_all`，PostgreSQL Compose 启动前执行 `alembic upgrade head`。生产上线仍需 PostgreSQL 测试实例的备份/恢复演练。
 
 ### 4. 关键数据契约
 
-`ProductFact`: `(sku, field, value, evidence_ref, reviewer, verified_at, version)`；目前 MVP 只存 `field/value/evidence_ref`，审阅人及正式签名证据应在 P1 实现。
+`ProductFact v2`: `(product_id, field_path, revision, value_snapshot, evidence_reference, evidence_sha256, reviewer, valid_until, action)`；实现追加式事实版本与撤销，`reviewer` 为操作员提供的声明，真实身份绑定/证据附件哈希核验/正式电子签名仍待做。
 
 `KeywordOpportunity`: `(phrase, platform, locale, intent, product_ref, score_breakdown, source, measured_at)`；目前 MVP 存来源文字和评分，下一期补原始指标与可靠性权重。
 

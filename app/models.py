@@ -1,5 +1,5 @@
-from datetime import datetime, timezone
-from sqlalchemy import String, Integer, DateTime, ForeignKey, Float, JSON, UniqueConstraint, Text
+from datetime import datetime, date, timezone
+from sqlalchemy import String, Integer, DateTime, Date, ForeignKey, Float, JSON, UniqueConstraint, Text, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .database import Base
 
@@ -104,3 +104,29 @@ class SiteAuditRun(Base):
     summary: Mapped[dict] = mapped_column(JSON, default=dict)
     issues: Mapped[list] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ProductFactRevision(Base):
+    """Append-only field-level verification history; never edit old revisions.
+
+    A verified fact remains usable only while its latest revision is verified,
+    not expired, and still matches the current catalog field value.
+    """
+    __tablename__ = "product_fact_revisions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id", ondelete="RESTRICT"), nullable=False)
+    field_path: Mapped[str] = mapped_column(String(120), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    action: Mapped[str] = mapped_column(String(20), nullable=False)  # verified / revoked
+    value_snapshot: Mapped[dict | list | str | int | float | bool | None] = mapped_column(JSON, nullable=True)
+    evidence_reference: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    evidence_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reviewer: Mapped[str] = mapped_column(String(120), nullable=False)
+    source_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    valid_until: Mapped[date | None] = mapped_column(Date, nullable=True)
+    reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    __table_args__ = (
+        UniqueConstraint("product_id", "field_path", "revision", name="uq_product_fact_revision"),
+        Index("ix_product_fact_revisions_product_field", "product_id", "field_path"),
+    )

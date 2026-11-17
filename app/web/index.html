@@ -52,12 +52,36 @@ async function call(path, method='GET', body){key=$('secret').value||key;const r
 function notify(m){$('toast').textContent=m}
 async function refresh(){try{const [summary,products,keywords,contents]=await Promise.all([call('/dashboard'),call('/products'),call('/keywords'),call('/contents')]);
 $('cards').innerHTML=[['产品',summary.products],['关键词',summary.keywords],['内容草稿及任务',summary.contents],['有效询盘（导入）',summary.qualified_leads]].map(([a,b])=>`<div class="card"><div class="muted">${a}</div><div class="number">${b}</div></div>`).join('');
-$('products').innerHTML=products.map(p=>`<div class="line"><b>#${p.id} ${esc(p.title_zh)}</b><div class="muted">${esc(p.sku)} · 核实 ${p.verified_fields.length} 个字段</div><div class="small">属性：${esc(JSON.stringify(p.properties))}</div><button class="ghost" onclick="verifyProduct(${p.id})">核实字段与来源</button></div>`).join('');
+$('products').innerHTML=products.map(p=>`<div class="line"><b>#${p.id} ${esc(p.title_zh)}</b><div class="muted">${esc(p.sku)} · 核实 ${p.verified_fields.length} 个字段</div><div class="small">属性：${esc(JSON.stringify(p.properties))}</div><button class="ghost" onclick="verifyProduct(${p.id})">核实字段与来源</button><button class="ghost" onclick="showFacts(${p.id})">查看事实历史</button><button class="ghost" onclick="revokeFact(${p.id})">撤销事实</button></div>`).join('');
 $('keywords').innerHTML=keywords.map(k=>`<div class="line"><b>#${k.id} ${esc(k.phrase)}</b><div class="muted">${esc(k.platform)} / ${esc(k.locale)} · 优先级 ${k.priority}</div><button class="ghost" onclick="$('draft_keyword_id').value=${k.id}">选为草稿主题</button></div>`).join('');
 $('contents').innerHTML=contents.map(c=>`<div class="line"><b>#${c.id} ${esc(c.title)}</b><p class="small"><span class="status">${esc(c.status)}</span> · ${esc(c.platform)} · ${esc(c.locale)}</p><details><summary class="muted">查看正文与证据</summary><pre style="white-space:pre-wrap;font-size:11px">${esc(c.body)}</pre><pre style="white-space:pre-wrap;font-size:10px">${esc(JSON.stringify(c.evidence_snapshot,null,2))}</pre></details><div class="small" style="color:#f5bf8b">${esc(c.review_notes.join('; '))}</div><div class="actions">${[['DRAFT','validate','QA'],['VALIDATED','submit-review','提交审核'],['REVIEW_REQUIRED','approve','人工批准'],['APPROVED','prepare-publication','生成发布交接包']].filter(([s])=>s===c.status).map(([,path,label])=>`<button class="ghost" onclick="action(${c.id},'${path}')">${label}</button>`).join('')}${c.status==='HANDOFF_READY'?`<button class="ghost" onclick="confirmPublication(${c.id})">确认人工发布</button>`:''}</div></div>`).join('');notify('已连接。数据从本地数据库读取，不代表外部平台实时状态。')}catch(e){notify(e.message)}}
 $('product').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target);try{await call('/products','POST',{sku:f.get('sku'),title_zh:f.get('title_zh'),title_en:f.get('title_en')||null,stone_type:f.get('stone_type'),properties:JSON.parse(f.get('properties'))});e.target.reset();await refresh()}catch(e){notify(e.message)}};
 $('keyword').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target);const s=String(f.get('scores')).split(',').map(Number);try{if(s.length!==4||s.some(x=>!Number.isFinite(x)))throw new Error('评分必须填写四个数字');await call('/keywords','POST',{product_id:Number(f.get('product_id')),phrase:f.get('phrase'),platform:f.get('platform'),locale:f.get('locale'),intent:f.get('intent'),source:f.get('source'),intent_score:s[0],relevance_score:s[1],opportunity_score:s[2],feasibility_score:s[3]});await refresh()}catch(e){notify(e.message)}};
-async function verifyProduct(id){const raw=prompt('输入字段来源 JSON，例如：{"title_zh":"内部产品目录第3页","stone_type":"采购确认单#11","properties.thickness_mm":"规格表#23"}');if(!raw)return;try{await call('/products/'+id+'/verify','POST',{evidence:JSON.parse(raw)});await refresh()}catch(e){notify(e.message)}}
+async function verifyProduct(id){
+  const field=prompt('核验字段名（如 title_en、stone_type、properties.thickness_mm）：');if(!field)return;
+  const reference=prompt('证据来源定位（如：供应商规格单 2026-11 第 3 页；不填敏感内容）：');if(!reference)return;
+  const reviewer=prompt('复核人或工号（由人工确认）：');if(!reviewer)return;
+  const valid_until=prompt('有效期 YYYY-MM-DD（可留空代表未设置）：','');
+  if(valid_until===null)return;
+  try{await call('/products/'+id+'/facts/verify','POST',{
+    field_path:field,evidence_reference:reference,reviewer,
+    valid_until:valid_until||null
+  });await refresh();notify('已记录新版本核验；请到事实历史查看。')}
+  catch(e){notify(e.message)}
+}
+async function showFacts(id){
+  try{const result=await call('/products/'+id+'/facts');
+    notify('产品 #'+id+' 事实历史（仅操作员声称的证据，未自动验证来源）：\n'+JSON.stringify(result,null,2));}
+  catch(e){notify(e.message)}
+}
+async function revokeFact(id){
+  const field=prompt('撤销哪个已核验字段（如 stone_type）：');if(!field)return;
+  const reviewer=prompt('执行人：');if(!reviewer)return;
+  const reason=prompt('撤销原因（至少6个字符）：');if(!reason)return;
+  try{await call('/products/'+id+'/facts/revoke','POST',{field_path:field,reviewer,reason});
+    await refresh();notify('事实已撤销；受影响的旧草稿将阻止审批或发布交接。');}
+  catch(e){notify(e.message)}
+}
 async function createDraft(){try{await call('/contents/drafts','POST',{keyword_id:Number($('draft_keyword_id').value)});await refresh()}catch(e){notify(e.message)}}
 async function action(id,path){try{const v=await call('/contents/'+id+'/'+path,'POST');await refresh();if(path==='prepare-publication')notify(JSON.stringify(v,null,2))}catch(e){notify(e.message)}}
 async function importCatalog(dryRun){

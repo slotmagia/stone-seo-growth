@@ -10,15 +10,11 @@ def safe_string(value):
         return "、".join(map(str,value))
     return str(value)
 
-def generate(product: Product, keyword: Keyword) -> dict:
+def generate(product: Product, keyword: Keyword, verified_facts: dict[str, dict]) -> dict:
     locale = keyword.locale
     primary = "title_en" if locale == "en-US" else "title_zh"
-    verified = set(product.verified_fields or [])
-    snapshot = {}
-    for field in sorted(verified):
-        val = get_value(product, field)
-        if val is not None:
-            snapshot[field] = {"value": val,"source": (product.evidence or {}).get(field)}
+    snapshot = verified_facts
+    verified = set(snapshot)
     name = (getattr(product,primary) or "").strip()
     if primary not in verified:
         name = keyword.phrase  # Do not assert unverified product identity

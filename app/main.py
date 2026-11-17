@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, Depends, HTTPException, Request, Query
@@ -6,10 +7,11 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.database import Base, engine, get_db
-from app.models import Product, Keyword, Content, Metric, AuditEvent, GeoObservation, SiteAuditRun
-from app.schemas import ProductCreate, ProductRead, VerifyFields, KeywordCreate, KeywordRead, DraftCreate, ContentRead, ManualPublication, MetricIn, GeoSampleIn, SiteSnapshotIn
+from app.models import Product, Keyword, Content, Metric, AuditEvent, GeoObservation, SiteAuditRun, ProductFactRevision
+from app.schemas import ProductCreate, ProductRead, VerifyFields, KeywordCreate, KeywordRead, DraftCreate, ContentRead, ManualPublication, MetricIn, GeoSampleIn, SiteSnapshotIn, ProductFactVerifyIn, ProductFactRevokeIn, ProductFactRevisionRead
 from app.security import require_admin
 from app.domains.catalog.service import verify
+from app.domains.catalog.facts import append_verifications, revoke_fact, effective_facts, current_draft_blockers
 from app.domains.catalog.importer import prepare_csv_import, MAX_CSV_BYTES
 from app.domains.keywords.service import priority_score
 from app.domains.content.service import generate, qa_blockers
@@ -19,10 +21,13 @@ from app.domains.site_audit.service import generate_baseline
 
 @asynccontextmanager
 async def lifespan(app:FastAPI):
-    Base.metadata.create_all(bind=engine)  # MVP only; Alembic migrations required before production
+    # Compatibility for local SQLite demos and TestClient only.
+    # PostgreSQL must be migrated with `alembic upgrade head` before startup.
+    if engine.dialect.name == "sqlite" and os.getenv("MVP_SQLITE_AUTO_CREATE", "1") == "1":
+        Base.metadata.create_all(bind=engine)
     yield
 
-app = FastAPI(title="Stone SEO/GEO Growth Platform", version="0.1.1", lifespan=lifespan)
+app = FastAPI(title="Stone SEO/GEO Growth Platform", version="0.1.2", lifespan=lifespan)
 
 @app.get("/", response_class=HTMLResponse)
 def home():
@@ -83,13 +88,50 @@ async def import_products_csv(request: Request, dry_run: bool = Query(False), db
         raise HTTPException(409, "SKU conflict during commit; the batch was rolled back")
     return {**prepared.report, "imported": len(prepared.products), "dry_run": False}
 
+def _product_view(db: Session, product: Product):
+    """Never display expired or legacy-only mirrors as currently verified."""
+    result = ProductRead.model_validate(product).model_dump()
+    effective = effective_facts(db, product)
+    result["evidence"] = {field: fact["source"] for field, fact in effective.items()}
+    result["verified_fields"] = sorted(effective)
+    return result
+
 @api.get("/products", response_model=list[ProductRead])
 def list_products(db:Session=Depends(get_db)):
-    return db.scalars(select(Product).order_by(Product.id.desc()).limit(100)).all()
+    return [_product_view(db, product) for product in db.scalars(
+        select(Product).order_by(Product.id.desc()).limit(100)).all()]
 
 @api.post("/products/{product_id}/verify", response_model=ProductRead)
 def verify_product(product_id:int, payload:VerifyFields, db:Session=Depends(get_db)):
-    return verify(must_find(db,Product,product_id),payload.evidence,db)
+    product = verify(must_find(db,Product,product_id),payload.evidence,db)
+    return _product_view(db, product)
+
+@api.post("/products/{product_id}/facts/verify", response_model=ProductRead)
+def verify_product_fact(product_id: int, payload: ProductFactVerifyIn, db: Session = Depends(get_db)):
+    product = must_find(db, Product, product_id)
+    verified = append_verifications(db, product, [payload.model_dump()], source_kind="manual_document")
+    return _product_view(db, verified)
+
+@api.post("/products/{product_id}/facts/revoke", response_model=ProductRead)
+def revoke_product_fact(product_id: int, payload: ProductFactRevokeIn, db: Session = Depends(get_db)):
+    product = must_find(db, Product, product_id)
+    revoked = revoke_fact(db, product, field=payload.field_path, reviewer=payload.reviewer, reason=payload.reason)
+    return _product_view(db, revoked)
+
+@api.get("/products/{product_id}/facts")
+def get_product_facts(product_id: int, db: Session = Depends(get_db)):
+    product = must_find(db, Product, product_id)
+    revisions = db.scalars(select(ProductFactRevision).where(
+        ProductFactRevision.product_id == product_id
+    ).order_by(ProductFactRevision.field_path, ProductFactRevision.revision.desc()).limit(1000)).all()
+    effective = effective_facts(db, product)
+    return {
+        "product_id": product_id,
+        "effective_facts": effective,
+        "history": [ProductFactRevisionRead.model_validate(item) for item in revisions],
+        "history_truncated": len(revisions) == 1000,
+        "note": "Operator-supplied evidence; source authenticity/reviewer identity are not independently verified. Legacy facts must be reverified.",
+    }
 
 @api.post("/keywords",response_model=KeywordRead,status_code=201)
 def create_keyword(payload:KeywordCreate,db:Session=Depends(get_db)):
@@ -112,7 +154,7 @@ def list_keywords(db:Session=Depends(get_db)):
 def create_draft(payload:DraftCreate,db:Session=Depends(get_db)):
     keyword=must_find(db,Keyword,payload.keyword_id)
     product=must_find(db,Product,keyword.product_id)
-    drafted=generate(product,keyword)
+    drafted=generate(product,keyword,effective_facts(db,product))
     content=Content(product_id=product.id,keyword_id=keyword.id,platform=keyword.platform,locale=keyword.locale,**drafted)
     db.add(content);db.flush()
     db.add(AuditEvent(entity_type="content",entity_id=content.id,action="draft_created",details={"engine":"evidence_template_v1"}))
@@ -127,7 +169,7 @@ def list_contents(db:Session=Depends(get_db)):
 def validate_content(content_id:int,db:Session=Depends(get_db)):
     item=must_find(db,Content,content_id)
     if item.status != "DRAFT": raise HTTPException(409,detail="Can only validate a DRAFT")
-    blockers=qa_blockers(item)
+    blockers=qa_blockers(item) + current_draft_blockers(db,item)
     item.review_notes=blockers
     if not blockers: item.status="VALIDATED"
     db.add(AuditEvent(entity_type="content",entity_id=item.id,action="qa_run",details={"blockers":blockers}))
@@ -147,7 +189,8 @@ def submit_review(content_id:int,db:Session=Depends(get_db)):
 def approve(content_id:int,db:Session=Depends(get_db)):
     item=must_find(db,Content,content_id)
     if item.status != "REVIEW_REQUIRED": raise HTTPException(409,detail="Review submission required")
-    if qa_blockers(item): raise HTTPException(422,detail="Evidence requirements not satisfied")
+    if qa_blockers(item) or current_draft_blockers(db,item):
+        raise HTTPException(422,detail="Evidence requirements not satisfied or draft is stale")
     item.status="APPROVED"
     db.add(AuditEvent(entity_type="content",entity_id=item.id,action="manually_approved"))
     db.commit();db.refresh(item)
@@ -158,6 +201,8 @@ def prepare_publication(content_id:int,db:Session=Depends(get_db)):
     item=must_find(db,Content,content_id)
     if item.status not in ("APPROVED","HANDOFF_READY"):
         raise HTTPException(409,detail="Approval required before handoff")
+    if current_draft_blockers(db,item):
+        raise HTTPException(422,detail="Evidence changed or expired; regenerate draft")
     item.status="HANDOFF_READY"
     db.add(AuditEvent(entity_type="content",entity_id=item.id,action="manual_publication_package_prepared"))
     db.commit()
@@ -167,6 +212,8 @@ def prepare_publication(content_id:int,db:Session=Depends(get_db)):
 def confirm_manual_publication(content_id:int,payload:ManualPublication,db:Session=Depends(get_db)):
     item=must_find(db,Content,content_id)
     if item.status != "HANDOFF_READY": raise HTTPException(409,detail="Prepare publication handoff first")
+    if current_draft_blockers(db,item):
+        raise HTTPException(422,detail="Evidence changed or expired; do not confirm publication")
     item.status="PUBLISHED"
     item.publication_url=str(payload.url)
     item.publication_method="manual_operator_confirmation"  # not independently verified
@@ -212,7 +259,7 @@ def seo_audit(content_id:int,db:Session=Depends(get_db)):
     check("description_present",bool(item.description),"Meta description should be populated")
     check("description_length",len(item.description)<=160,"160 characters is a local editorial heuristic, not a search-engine limit")
     check("h1_present",item.body.startswith("# "),"Content should have a primary heading")
-    check("product_facts_verified",not qa_blockers(item),"Product facts must pass evidence quality gate")
+    check("product_facts_verified",not (qa_blockers(item) or current_draft_blockers(db,item)),"Product facts must pass evidence quality gate and remain current")
     check("keyword_in_title",item.keyword.phrase.lower() in item.title.lower(),"Target topic should be apparent in title")
     return {"content_id":item.id,"checks":checks,"pass_count":sum(x['pass'] for x in checks),"total":len(checks),"note":"Local editorial checks only; no ranking, crawl or index status is inferred."}
 

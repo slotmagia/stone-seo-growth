@@ -14,15 +14,11 @@ def get_value(product: Product, field: str):
         return (product.properties or {}).get(key)
     return None
 
-def verify(product: Product, evidence: dict[str,str], db: Session):
-    allowed = ALLOWED_ROOTS | {f"properties.{key}" for key in (product.properties or {})}
-    for field, reference in evidence.items():
-        if field not in allowed or get_value(product,field) in (None,"",[],{}):
-            raise HTTPException(422, detail=f"Unknown or empty field: {field}")
-        if not reference or len(reference.strip()) < 6:
-            raise HTTPException(422, detail=f"Evidence reference too short: {field}")
-    product.evidence = {**(product.evidence or {}), **evidence}
-    product.verified_fields = sorted(set(product.verified_fields or []).union(evidence))
-    db.add(AuditEvent(entity_type="product", entity_id=product.id, action="fields_verified",details={"fields": sorted(evidence)}))
-    db.commit(); db.refresh(product)
-    return product
+def verify(product: Product, evidence: dict[str, str], db: Session):
+    """v1-compatible endpoint; revisions identify reviewer as legacy API, not a person."""
+    from app.domains.catalog.facts import append_verifications
+    return append_verifications(db, product, [
+        {"field_path": field, "evidence_reference": reference,
+         "reviewer": "legacy_api_unattributed"}
+        for field, reference in evidence.items()
+    ], source_kind="legacy_api")

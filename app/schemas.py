@@ -22,6 +22,34 @@ class VerifyFields(BaseModel):
     # Reference must point to a real record, document or signed manual verification.
     evidence: dict[str, str] = Field(min_length=1)
 
+class ProductFactVerifyIn(BaseModel):
+    field_path: str = Field(min_length=1, max_length=120)
+    evidence_reference: str = Field(min_length=6, max_length=500)
+    reviewer: str = Field(min_length=2, max_length=120)
+    evidence_sha256: str | None = Field(default=None, pattern=r"^[a-fA-F0-9]{64}$")
+    valid_until: date | None = None
+
+class ProductFactRevokeIn(BaseModel):
+    field_path: str = Field(min_length=1, max_length=120)
+    reviewer: str = Field(min_length=2, max_length=120)
+    reason: str = Field(min_length=6, max_length=500)
+
+class ProductFactRevisionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    product_id: int
+    field_path: str
+    revision: int
+    action: str
+    value_snapshot: Any
+    evidence_reference: str | None
+    evidence_sha256: str | None
+    reviewer: str
+    source_kind: str
+    valid_until: date | None
+    reason: str | None
+    created_at: Any
+
 class KeywordCreate(BaseModel):
     phrase: str = Field(min_length=2, max_length=300)
     platform: Platform

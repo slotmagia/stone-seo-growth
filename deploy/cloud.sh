@@ -71,7 +71,7 @@ case "${1:-}" in
     fi
     echo 'Health OK: http://127.0.0.1:8000/health'
     echo 'UI (via SSH tunnel): http://127.0.0.1:8000/'
-    echo 'WARNING: MVP trial only; bind is loopback-only. No SSO/RBAC or schema migration yet.'
+    echo 'WARNING: MVP trial only; loopback-only. Alembic runs on startup; no SSO/RBAC or production backup/restore yet.'
     ;;
   status)
     check_docker

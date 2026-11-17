@@ -1,6 +1,6 @@
 # Stone Growth OS — 石材行业 SEO / GEO 智能增长平台
 
-> **v0.1.1 · 可运行的离线/本地 MVP，不是生产级全渠道运营系统。**
+> **v0.1.2 · 可运行的离线/本地 MVP，不是生产级全渠道运营系统。**
 >
 > 对应需求：石材批发、加工、工程、线上零售及外贸的关键词发现、证据型内容、发布审批、搜索表现与询盘增长闭环。
 
@@ -19,6 +19,12 @@
 | GEO | 🟡 基础 | 手动记录 AI 搜索采样结果、提及率与引用率；无实时平台查询 |
 | 电商/百度/Google/抖音/国际站 API | 📋 待授权 | 需要账号授权、接口审批、平台配额与契约测试 |
 | 多渠道自动发布、真实搜索排名 | ❌ 未实现 | 不能声称已实现或保证排名 |
+
+## P0-02 / P0-06：新增版本事实和数据库迁移
+
+- `ProductFact v2`：产品字段独立版本、证据引用及可选 SHA-256、复核人、有效期、撤销历史；草稿在批准/交接时校验事实版本，详情见 [`docs/product-facts-v2.md`](docs/product-facts-v2.md)。
+- `Alembic`：`0001_baseline` 接管已有表、`0002_product_facts` 新增历史表；迁移、备份与保守降级策略见 [`docs/database-migrations.md`](docs/database-migrations.md)。
+- 管理台新增字段级核验、撤销和历史查看入口；**复核人及证据来源由操作员声明，系统尚不能独立校验其真实性。**
 
 ## 本地运行（无需外部账号）
 
@@ -51,9 +57,9 @@ cp .env.example .env
 # docker compose up --build -d
 ```
 
-在 `.env` 追加：`POSTGRES_PASSWORD=<随机数据库密码>`。Compose 只在 `127.0.0.1:8000` 监听；远程访问必须经 HTTPS 反向代理与身份认证。此配置仅用于功能试运行。生产需要 Alembic 数据库迁移、备份、角色隔离、SSO、审计保留策略、安全扫描和运行监控。
+在 `.env` 追加：`POSTGRES_PASSWORD=<随机数据库密码>`。Compose 只在 `127.0.0.1:8000` 监听；远程访问必须经 HTTPS 反向代理与身份认证。此配置仅用于功能试运行。现已包含 Alembic 迁移脚本；生产仍需真实 PostgreSQL 迁移/恢复演练、备份、角色隔离、SSO、审计保留策略、安全扫描和运行监控。
 
-## P0 新增：产品 CSV 与静态 SEO 基线（v0.1.1）
+## P0 新增：产品 CSV 与静态 SEO 基线（v0.1.2）
 
 - CSV 全量预检、大小与字段校验、大小写不敏感 SKU 去重、无错才批量落库；新增事实均保持「未验证」。
 - 人工输入页面元数据形成 **离线** 技术 SEO 基线，按错误/警告/信息归类，保存历史快照及审计事件。
@@ -86,7 +92,7 @@ curl -s http://127.0.0.1:8000/api/v1/dashboard \
 
 ```bash
 python -m pytest -q
-python -m compileall -q app
+python -m compileall -q app migrations
 ```
 
 ## 结构
