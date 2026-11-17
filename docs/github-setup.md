@@ -1,22 +1,30 @@
-# GitHub 仓库创建与上传
+# GitHub 仓库与开发流程
 
-建议新建**私有**仓库 `stone-seo-growth`，避免把新项目混入其他业务代码库。
+## 当前远程状态（2026-11-18）
 
-当前会话的 GitHub 连接已验证属于 `slotmagia`，但可用的 GitHub 连接动作**没有创建仓库的功能**，因此不宣称已完成远程推送。
+- 仓库：<https://github.com/slotmagia/stone-seo-growth>
+- 默认分支：`main`
+- 已初始化源代码：39 个项目文件，包含 FastAPI MVP、文档、测试与 GitHub Actions CI 配置
+- **仓库当前是 Public**：请勿在仓库中提交真实客户信息、产品保密资料、API 密钥、`.env` 或数据库备份。需要存放企业敏感资料时，请由管理员先调整仓库可见性及协作权限
 
-1. 打开 <https://github.com/new>，选择账号 `slotmagia`，Repository name 填 `stone-seo-growth`，Visibility 选 **Private**。
-2. 不勾选 Initialize with README、.gitignore 或 license（项目包已包含必要文件）。
-3. 解压项目包并在解压目录运行以下命令：
+## 获取代码
 
 ```bash
-git init
-git branch -M main
-git add .
-git commit -m "feat: bootstrap evidence-first stone SEO/GEO platform MVP"
-git remote add origin https://github.com/slotmagia/stone-seo-growth.git
-git push -u origin main
+git clone https://github.com/slotmagia/stone-seo-growth.git
+cd stone-seo-growth
+python -m venv .venv
+source .venv/bin/activate
+pip install -e '.[dev]'
+python -m pytest -q
 ```
 
-或完成空仓库创建后，将仓库 URL 返回给 ChatGPT。连接器具备向**现有**仓库创建文件/分支、创建 commit 的能力，可在该仓库上继续提交。
+完整启动与本地管理密钥配置详见 [README](../README.md)。
 
-**不要**上传 `.env`、真实登录信息或数据库副本。GitHub Actions 会执行自动化测试；首次 GitHub Actions 运行结果以仓库实际显示为准。
+## 后续变更规范
+
+1. 从 `main` 创建 feature 分支；保持 Catalog/Keywords/Content/Publishing/Analytics 领域边界。
+2. 本地运行测试，CI 结果以 GitHub Actions 实际运行记录为准。
+3. 提交 Pull Request，重点检查产品证据、权限、数据来源、平台接口合法性与副作用。
+4. 不允许在未完成 CMS 授权、幂等、回滚和审计之前开启真实自动发布。
+
+历史包中的 `publish-to-github.sh` / `publish-to-github.ps1` 仅适合**完全空白的远程仓库**，此仓库已初始化，不应再次执行这两个脚本。
